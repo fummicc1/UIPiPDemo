@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import WebKit
 
 extension UIView {
 
@@ -16,4 +17,23 @@ extension UIView {
       layer.render(in: context.cgContext)
     }
   }
+}
+
+extension WKWebView {
+    var image: UIImage? {
+        get async {
+            let snapshotWidth = UIScreen.main.bounds.width
+            let config = WKSnapshotConfiguration()
+            config.snapshotWidth = NSNumber(value: snapshotWidth)
+            do {
+                let image = try await Task { @MainActor in
+                    try await takeSnapshot(configuration: config)
+                }.value
+                return image
+            } catch {
+                print(error)
+                return nil
+            }
+        }
+    }
 }

@@ -7,49 +7,77 @@
 
 import UIKit
 import AVKit
+import WebKit
 import AVFoundation
 
 class VideoProvider: NSObject {
 
-  private var timer: Timer!
-  var bufferDisplayLayer = AVSampleBufferDisplayLayer()
+    private var timer: Timer?
+    var bufferDisplayLayer = AVSampleBufferDisplayLayer()
 
-  // 適当に UILabel を描画
-  private let _label: UILabel = {
+    private let webView: WKWebView = {
+        let width = UIScreen.main.bounds.width * 0.4
+        let height = UIScreen.main.bounds.height * 0.4
+        let view = WKWebView(frame: CGRect(origin: .zero, size: CGSize(width: width, height: height)))
+        let initialURL = URLRequest(url: URL(string: "https://qiita.com/fummicc1_dev/items/bf57dbd203d78933bf0f")!)
+        view.load(initialURL)
+        return view
+    }()
 
-    let label = UILabel()
-    label.backgroundColor = .white
-    label.frame = .init(x: 0, y: 0, width: 200, height: 30)
-    label.font = .boldSystemFont(ofSize: 10)
-    label.textAlignment = .center
-    label.textColor = .black
-    return label
-  }()
+    private var previousURL: URL?
 
-  // 現在時刻を表示
-  func nextBuffer() -> UIImage {
-    _label.text = "\(Date())"
-    return _label.uiImage
-  }
-
-  func start() {
-    let timerBlock: ((Timer) -> Void) = { [weak self] timer in
-      guard let buffer = self?.nextBuffer().cmSampleBuffer else { return }
-      self?.bufferDisplayLayer.enqueue(buffer)
+    // 現在時刻を表示
+    func nextBuffer() async -> UIImage? {
+        let contentOffsetY = await webView.scrollView.contentOffset.y
+        let contentSizeY = await webView.scrollView.contentSize.height
+        let isOver = contentOffsetY == contentSizeY
+        if isOver {
+            let url = URL(string: "https://qiita.com/fummicc1_dev/items/bf57dbd203d78933bf0f")!
+            let request = URLRequest(url: url)
+            await webView.load(request)
+        }
+        await Task { @MainActor in
+            webView.scrollView.contentOffset.y += 10
+        }.value
+        return await webView.image
     }
 
-    timer = Timer(timeInterval: 0.3, repeats: true, block: timerBlock)
-    RunLoop.main.add(timer, forMode: .default)
-  }
+    func startIfNeeded() {
+        if timer?.isValid ?? false {
+            return
+        }
+        let timerBlock: ((Timer) -> Void) = { [weak self] timer in
+            guard let self = self else {
+                return
+            }
+            Task {
+                guard let buffer = await self.nextBuffer()?.cmSampleBuffer else { return }
+                self.bufferDisplayLayer.enqueue(buffer)
+            }
+        }
 
-  func stop() {
-    if timer != nil {
-      timer.invalidate()
-      timer = nil
+        let timer = Timer(timeInterval: 0.3, repeats: true, block: timerBlock)
+        RunLoop.main.add(timer, forMode: .default)
+        self.timer = timer
     }
-  }
 
-  func isRunning() -> Bool {
-    return timer != nil
-  }
+    func stop() {
+        if let timer = timer {
+            timer.invalidate()
+            self.timer = nil
+        }
+    }
+
+    func handlePipAction() {
+        let isValid = timer?.isValid ?? false
+        if isValid {
+            stop()
+        } else {
+            startIfNeeded()
+        }
+    }
+
+    func isRunning() -> Bool {
+        return timer != nil
+    }
 }
